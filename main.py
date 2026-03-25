@@ -1,4 +1,4 @@
- import yfinance as yf
+import yfinance as yf
 import asyncio
 import requests
 from gnews import GNews
