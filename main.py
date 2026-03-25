@@ -27,7 +27,7 @@ stock_targets = {
 
 def send_telegram(text):
     if not text.strip(): return
-    url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+    url = f"https://api.telegram.org{TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": text, "disable_web_page_preview": True}
     try:
         requests.post(url, data=payload, timeout=15)
@@ -37,7 +37,6 @@ def send_telegram(text):
 def get_price_info(name, symbol, is_stock=True):
     try:
         ticker = yf.Ticker(symbol)
-        # 시세 수집 강화: 1개월치 데이터를 로드하여 유효한 최신 2일 비교
         hist = ticker.history(period="1mo")
         if hist.empty:
             return f"📍 {name}: 시세 데이터 없음\n"
@@ -66,13 +65,11 @@ def run():
     kst = pytz.timezone('Asia/Seoul')
     now = datetime.now(kst).strftime('%Y-%m-%d %H:%M')
     
-    # 1. 경제 지표 리포트
     macro_report = f"🌍 [경제 지표 리포트 - {now}]\n\n"
     for name, symbol in macro_targets.items():
         macro_report += get_price_info(name, symbol, is_stock=False)
     send_telegram(macro_report)
     
-    # 2. 보유 종목 리포트
     stock_report = f"📈 [보유 종목 시황 - {now}]\n\n"
     for name, symbol in stock_targets.items():
         stock_report += get_price_info(name, symbol, is_stock=True)
@@ -81,10 +78,3 @@ def run():
 
 if __name__ == "__main__":
     run()
-코드를 사용할 때는 주의가 필요합니다.
-
-✅ 변경 사항 요약
-뉴스 기능 완전 제거: get_news 및 뉴스 관련 모든 로직을 삭제하여 시세 정보만 출력됩니다.
-메시지 이원화 유지: 경제 지표와 보유 종목을 나누어 보내어 가독성을 지켰습니다.
-데이터 안정성: 1개월치 데이터를 분석해 가장 최신 종가를 가져오는 강화 로직은 그대로 유지했습니다.
-이제 [Actions] 탭에서 [Run workflow]를 눌러보
