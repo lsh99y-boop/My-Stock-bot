@@ -1,9 +1,10 @@
 import yfinance as yf
 import requests
+import re
 from datetime import datetime
 import pytz
 
-# --- 설정 ---
+# --- 설정 (정보 확인) ---
 TOKEN = '8472222940:AAHS9y-3YJiTTh2MKBWOKtatzSMaVnXV9Zg'
 CHAT_ID = '930319531'
 
@@ -16,28 +17,28 @@ targets = {
 }
 
 def send_telegram(text):
-    """메시지가 4000자를 넘지 않도록 안전하게 전송"""
+    # .org/bot 경로를 정확히 유지합니다.
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-    # 메시지를 4000자 단위로 쪼개기
-    for i in range(0, len(text), 4000):
-        part = text[i:i+4000]
-        payload = {"chat_id": CHAT_ID, "text": part, "disable_web_page_preview": True}
-        requests.post(url, data=payload, timeout=15)
+    payload = {
+        "chat_id": CHAT_ID, 
+        "text": text, 
+        "disable_web_page_preview": False  # URL 미리보기를 켜서 기사 썸네일이 보이게 합니다.
+    }
+    requests.post(url, data=payload, timeout=15)
 
 def run():
     kst = pytz.timezone('Asia/Seoul')
     now = datetime.now(kst).strftime('%Y-%m-%d %H:%M')
     
-    # 1. 헤더 먼저 전송
-    send_telegram(f"📅 [포트폴리오 시황 리포트 - {now}]")
+    # 1. 상단 타이틀 전송
+    send_telegram(f"📅 [포트폴리오 시황 & 뉴스 링크 - {now}]")
     
-    report_content = ""
     for name, symbol in targets.items():
         try:
             ticker = yf.Ticker(symbol)
             hist = ticker.history(period="2d")
             
-            # 가격 정보 계산
+            # 시세 정보 구성
             if not hist.empty and len(hist) >= 2:
                 prev_c = hist['Close'].iloc[-2]
                 curr_c = hist['Close'].iloc[-1]
@@ -46,32 +47,22 @@ def run():
                 mark = "🔼" if diff > 0 else "🔽" if diff < 0 else "➖"
                 price_text = f"📍 {name}: {curr_c:,.0f}원 ({mark} {abs(diff):,.0f}, {pct:+.2f}%)"
             else:
-                price_text = f"📍 {name}: 데이터 수집 불가"
+                price_text = f"📍 {name}: 시세 수집 지연"
 
-            # 뉴스 정보 수집 (최신 yfinance 구조 대응)
-            news_info = "📰 최근 관련 뉴스 없음"
-            try:
-                # 최신 버전에서는 news 리스트에서 직접 추출
-                raw_news = ticker.news
-                if raw_news and len(raw_news) > 0:
-                    news_item = raw_news[0]
-                    news_info = f"📰 {news_item.get('title', '제목 없음')}\n🔗 {news_item.get('link', '')}"
-            except:
-                pass
+            # 뉴스 제목과 URL만 추출
+            news_info = "📰 관련 뉴스 없음"
+            raw_news = ticker.news
+            if raw_news and len(raw_news) > 0:
+                latest = raw_news[0] # 가장 최신 뉴스 1건
+                title = latest.get('title', '제목 없음')
+                link = latest.get('link', '')
+                news_info = f"📰 {title}\n🔗 {link}"
                 
-            report_content += f"{price_text}\n{news_info}\n\n"
-            
-            # 종목 5개마다 혹은 메시지가 길어지면 중간 전송 (안전 장치)
-            if len(report_content) > 3000:
-                send_telegram(report_content)
-                report_content = ""
+            # 종목별로 메시지 전송 (길이 제한 방지 및 가독성)
+            send_telegram(f"{price_text}\n{news_info}")
                 
         except Exception as e:
-            report_content += f"📍 {name}: 수집 오류\n\n"
-
-    # 남은 내용 전송
-    if report_content:
-        send_telegram(report_content)
+            print(f"{name} 에러: {e}")
 
 if __name__ == "__main__":
     run()
