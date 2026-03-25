@@ -1,25 +1,25 @@
- name: Daily Stock Bot
+name: Daily Stock Bot
+
 on:
   schedule:
-    - cron: '0 6 * * *'  # 한국 시간 오후 3시 (평일 자동 실행)
-  workflow_dispatch:      # [Run workflow] 버튼으로 수동 테스트 가능
+    - cron: '0 6 * * *'
+  workflow_dispatch:
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
     steps:
-      # 최신 버전으로 업데이트 (v4, v5 사용으로 경고 제거)
-      - uses: actions/checkout@v4 
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      # 실행에 필요한 모든 라이브러리 설치 (필수!)
       - name: Install dependencies
         run: |
           pip install yfinance requests gnews beautifulsoup4
 
-      # main.py 실행
       - name: Run main.py
         run: python main.py
