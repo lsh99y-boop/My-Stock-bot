@@ -2,23 +2,10 @@ name: Daily Stock Bot
 
 on:
   schedule:
-    # 1. 오전 9시 30분 (UTC 00:30)
+    # 1. 한국 시간 아침 7시 (UTC 22:00) - 해외 주식 마감 브리핑
+    - cron: '0 22 * * 1-5'
+    # 2. 한국 시간 오전 9시 30분 (UTC 00:30)
     - cron: '30 0 * * 1-5'
-    # 2. 오후 3시 30분 (UTC 06:30)
+    # 3. 한국 시간 오후 3시 30분 (UTC 06:30)
     - cron: '30 6 * * 1-5'
-  workflow_dispatch: # 수동 실행 버튼 유지
-
-jobs:
-  run-bot:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-      - name: Install dependencies
-        run: |
-          pip install yfinance requests pytz
-      - name: Run main.py
-        run: python main.py
+  workflow_dispatch:
