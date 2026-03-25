@@ -31,10 +31,14 @@ def get_news(stock_name):
         return "뉴스 수집 불가"
 
 def send_telegram(message):
-    # org 뒤에 /bot 이 반드시 들어가야 합니다.
+    # 주소 형식을 아래와 같이 정확하게 수정해야 합니다. 
+    # .org 뒤에 /bot 이 붙어야 하고, 그 뒤에 TOKEN이 와야 합니다.
     url = f"https://api.telegram.org{TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": message}
-    requests.post(url, data=payload)
+    
+    # 전송 결과 확인을 위해 response 변수 추가
+    response = requests.post(url, data=payload)
+    print(f"전송 결과: {response.status_code}") # 실행 로그에서 확인 가능
 
 def run():
     now = datetime.now().strftime('%Y-%m-%d %H:%M')
