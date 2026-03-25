@@ -27,7 +27,7 @@ stock_targets = {
 
 def send_telegram(text):
     if not text.strip(): return
-    url = f"https://api.telegram.org{TOKEN}/sendMessage"
+    url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": text, "disable_web_page_preview": True}
     try:
         requests.post(url, data=payload, timeout=15)
