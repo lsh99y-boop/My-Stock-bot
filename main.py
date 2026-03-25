@@ -1,12 +1,10 @@
 import yfinance as yf
-import asyncio
 import requests
-from gnews import GNews
 from datetime import datetime
 
 # --- 설정 (본인의 정보로 수정) ---
-TOKEN = '8472222940:AAHS9y-3YJiTTh2MKBWOKtatzSMaVnXV9Zg'
-CHAT_ID = '930319531 '
+TOKEN = '여기에_토큰_입력'
+CHAT_ID = '여기에_ID_숫자_입력'
 
 targets = {
     "HMM": "011200.KS", "두산에너빌리티": "034020.KS", "와이지-원": "019210.KQ",
@@ -16,36 +14,42 @@ targets = {
     "클래시스": "214150.KQ", "SK바이오사이언스": "302440.KS", "에스와이스틸텍": "365330.KQ"
 }
 
-def fetch_recent_news(stock_name):
+def get_news(stock_name):
+    """구글 뉴스 RSS를 직접 파싱하여 가장 단순하게 뉴스 제목 1개를 가져옴"""
     try:
-        google_news = GNews(language='ko', country='KR', period='3d', max_results=1)
-        news_list = google_news.get_news(stock_name)
-        return news_list[0]['title'] if news_list else "최근 3일 내 뉴스 없음"
-    except: return "뉴스 수집 불가"
+        url = f"https://news.google.com{stock_name}+when:3d&hl=ko&gl=KR&ceid=KR:ko"
+        res = requests.get(url)
+        # 단순 텍스트 파싱으로 제목 추출
+        start = res.text.find('<title>') + 7
+        end = res.text.find('</title>', start)
+        title = res.text[start:end]
+        # 첫 번째 제목은 검색결과 요약일 수 있으므로 두 번째 제목 시도
+        start2 = res.text.find('<title>', end) + 7
+        end2 = res.text.find('</title>', start2)
+        return res.text[start2:end2] if start2 > 7 else "최근 뉴스 없음"
+    except:
+        return "뉴스 수집 불가"
 
-def send_telegram_message(message):
-    """가장 에러가 적은 방식인 requests로 메시지 전송"""
+def send_telegram(message):
     url = f"https://api.telegram.org{TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": message}
-    response = requests.post(url, data=payload)
-    return response.json()
+    requests.post(url, data=payload)
 
-def run_report():
+def run():
     now = datetime.now().strftime('%Y-%m-%d %H:%M')
-    report = f"📊 [오후 3시 마감 시황 - {now}]\n\n"
+    report = f"📊 [시황 리포트 - {now}]\n\n"
     
-    print("🚀 데이터 수집 시작...")
     for name, symbol in targets.items():
         try:
             ticker = yf.Ticker(symbol)
             price = ticker.history(period="1d")['Close'].iloc[-1]
-            news = fetch_recent_news(name)
-            report += f"📍 {name}: {price:,.0f}원\n   📰 {news}\n\n"
-        except Exception as e:
+            news = get_news(name)
+            report += f"📍 {name}: {price:,.0f}원\n📰 {news}\n\n"
+        except:
             report += f"📍 {name}: 데이터 오류\n\n"
     
-    send_telegram_message(report)
-    print("✅ 전송 완료!")
+    send_telegram(report)
+    print("전송 완료")
 
 if __name__ == "__main__":
-    run_report()
+    run()
