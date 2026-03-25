@@ -1,6 +1,7 @@
 import yfinance as yf
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
+import pytz # 시간대 설정을 위해 필요합니다
 
 # --- 설정 ---
 TOKEN = '8472222940:AAHS9y-3YJiTTh2MKBWOKtatzSMaVnXV9Zg'
@@ -15,33 +16,30 @@ targets = {
 }
 
 def get_news(stock_name):
-    """구글 뉴스 RSS 주소를 정확하게 수정했습니다."""
+    """가장 차단이 적은 구글 뉴스 RSS 방식"""
     try:
-        # .com 뒤에 /rss/search?q= 가 반드시 들어가야 합니다.
         url = f"https://news.google.com{stock_name}+when:3d&hl=ko&gl=KR&ceid=KR:ko"
-        res = requests.get(url)
-        # 단순 텍스트 파싱으로 제목 추출
-        start = res.text.find('<title>') + 7
-        end = res.text.find('</title>', start)
-        # 첫 번째 제목은 검색결과 요약일 수 있으므로 두 번째 제목 시도
-        start2 = res.text.find('<title>', end) + 7
-        end2 = res.text.find('</title>', start2)
-        return res.text[start2:end2] if start2 > 7 else "최근 뉴스 없음"
+        res = requests.get(url, timeout=10)
+        # RSS에서 제목(title) 태그 추출
+        import re
+        titles = re.findall(r'<title>(.*?)</title>', res.text)
+        # 첫 번째 제목은 검색 결과 요약이므로 두 번째 제목(뉴스 제목) 반환
+        return titles[1] if len(titles) > 1 else "최근 뉴스 없음"
     except:
-        return "뉴스 수집 불가"
+        return "뉴스 수집 실패"
 
 def send_telegram(message):
-    """텔레그램 API 주소를 /bot 포함하여 수정했습니다."""
-    # .org 뒤에 /bot 이 반드시 들어가야 작동합니다.
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": message}
-    
-    response = requests.post(url, data=payload)
-    print(f"전송 결과 상태코드: {response.status_code}") 
+    requests.post(url, data=payload)
 
 def run():
-    now = datetime.now().strftime('%Y-%m-%d %H:%M')
-    report = f"📊 [시황 리포트 - {now}]\n\n"
+    # 한국 시간(KST)으로 설정
+    kst = pytz.timezone('Asia/Seoul')
+    now = datetime.now(kst).strftime('%Y-%m-%d %H:%M')
+    
+    report = f"📊 [KST 오후 3시 시황 - {now}]\n\n"
+    print(f"🚀 {now} 데이터 수집 시작...")
     
     for name, symbol in targets.items():
         try:
@@ -53,7 +51,7 @@ def run():
             report += f"📍 {name}: 데이터 오류\n\n"
     
     send_telegram(report)
-    print("전송 완료")
+    print("✅ 전송 완료")
 
 if __name__ == "__main__":
     run()
