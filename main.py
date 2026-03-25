@@ -1,11 +1,10 @@
 import yfinance as yf
 import requests
 import re
-import html
 from datetime import datetime
 import pytz
 
-# --- 설정 (본인 정보 확인 필수) ---
+# --- 설정 (본인 정보 확인) ---
 TOKEN = '8472222940:AAHS9y-3YJiTTh2MKBWOKtatzSMaVnXV9Zg'
 CHAT_ID = '930319531'
 
@@ -17,55 +16,66 @@ targets = {
     "클래시스": "214150.KQ", "SK바이오사이언스": "302440.KS", "에스와이스틸텍": "365330.KQ"
 }
 
-def get_news(name):
-    """가장 차단이 적은 구글 뉴스 RSS 방식 (7일치)"""
+def translate_to_ko(text):
+    """영문 뉴스를 한글로 자동 번역"""
     try:
-        url = f"https://news.google.com{name}+when:7d&hl=ko&gl=KR&ceid=KR:ko"
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        res = requests.get(url, headers=headers, timeout=10)
-        
-        # 첫 번째 뉴스 아이템 추출
-        item = re.search(r'<item>(.*?)</item>', res.text, re.DOTALL)
-        if item:
-            title = re.search(r'<title>(.*?)</title>', item.group(1)).group(1)
-            link = re.search(r'<link>(.*?)</link>', item.group(1)).group(1)
-            return f"📰 {html.unescape(title)}\n🔗 {link}"
-        return "📰 최근 7일 뉴스 없음"
+        if not re.search('[a-zA-Z]', text): return text
+        url = f"https://translate.googleapis.com{text}"
+        res = requests.get(url, timeout=5)
+        return "".join([s[0] for s in res.json()[0]])
+    except: return text
+
+def get_stable_news(name, symbol):
+    """야후 파이낸스 뉴스 우선 수집 (가장 안정적)"""
+    try:
+        ticker = yf.Ticker(symbol)
+        # 최신 yfinance 버전의 뉴스 구조 사용
+        yf_news = ticker.news
+        if yf_news and len(yf_news) > 0:
+            title = yf_news[0].get('title', '')
+            link = yf_news[0].get('link', '')
+            translated = translate_to_ko(title)
+            return f"📰 {translated}\n🔗 {link}"
     except:
-        return "📰 뉴스 수집 지연"
+        pass
+    
+    # 야후 실패 시 구글 뉴스 RSS 보조 시도
+    try:
+        g_url = f"https://news.google.com{name}+when:7d&hl=ko&gl=KR&ceid=KR:ko"
+        res = requests.get(g_url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
+        items = re.findall(r'<item>(.*?)</item>', res.text, re.DOTALL)
+        if items:
+            title = re.search(r'<title>(.*?)</title>', items[0]).group(1)
+            link = re.search(r'<link>(.*?)</link>', items[0]).group(1)
+            return f"📰 {title}\n🔗 {link}"
+    except:
+        pass
+    
+    return "📰 최근 7일 내 관련 뉴스 없음"
 
 def send_telegram(text):
-    """메시지 전송 (주소 /bot 필수 확인)"""
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": text, "disable_web_page_preview": True}
-    try:
-        r = requests.post(url, data=payload, timeout=15)
-        print(f"전송 결과: {r.status_code}, {r.text}")
-    except Exception as e:
-        print(f"전송 에러: {e}")
+    requests.post(url, data=payload, timeout=15)
 
 def run():
     kst = pytz.timezone('Asia/Seoul')
     now = datetime.now(kst).strftime('%Y-%m-%d %H:%M')
-    report = f"📅 [7일 통합 리포트 - {now}]\n\n"
+    report = f"📅 [포트폴리오 통합 시황 - {now}]\n\n"
     
-    print("🚀 데이터 수집 시작...")
     for name, symbol in targets.items():
         try:
             ticker = yf.Ticker(symbol)
-            # 최신 종가
-            price_data = ticker.history(period="1d")
-            price = price_data['Close'].iloc[-1] if not price_data.empty else 0
-            
-            news_info = get_news(name)
-            report += f"📍 {name}: {price:,.0f}원\n{news_info}\n\n"
+            price = ticker.history(period="1d")['Close'].iloc[-1]
+            news = get_stable_news(name, symbol)
+            report += f"📍 {name}: {price:,.0f}원\n{news}\n\n"
         except:
-            report += f"📍 {name}: 시세 오류\n\n"
+            report += f"📍 {name}: 정보 업데이트 지연\n\n"
 
-    # 메시지가 너무 길면 텔레그램에서 거부하므로 4000자 제한
+    # 메시지 길이 조절 (텔레그램 제한 준수)
     if len(report) > 4000:
-        report = report[:3900] + "\n...내용 생략"
-        
+        report = report[:3900] + "\n...(이하 생략)"
+    
     send_telegram(report)
 
 if __name__ == "__main__":
