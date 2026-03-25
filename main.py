@@ -18,7 +18,6 @@ targets = {
 }
 
 def translate_to_ko(text):
-    """영문 뉴스를 한글로 자동 번역"""
     try:
         if not re.search('[a-zA-Z]', text): return text
         url = f"https://translate.googleapis.com{text}"
@@ -27,10 +26,7 @@ def translate_to_ko(text):
     except: return text
 
 def get_news_with_url(name, symbol):
-    """7일간의 뉴스 제목과 URL 수집 (야후 우선 -> 구글 보조)"""
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-    
-    # 1. 야후 파이낸스 뉴스 시도 (공식 라이브러리라 가장 안정적)
+    headers = {'User-Agent': 'Mozilla/5.0'}
     try:
         ticker = yf.Ticker(symbol)
         yf_news = ticker.news
@@ -38,50 +34,55 @@ def get_news_with_url(name, symbol):
             latest = yf_news[0]
             title = translate_to_ko(latest.get('title', ''))
             link = latest.get('link', '')
-            if link: return f"📰 {title}\n🔗 {link}"
+            return f"📰 {title}\n🔗 {link}"
     except: pass
 
-    # 2. 야후 실패 시 구글 뉴스 RSS 시도 (7일치 데이터)
     try:
         g_url = f"https://news.google.com{name}+when:7d&hl=ko&gl=KR&ceid=KR:ko"
         res = requests.get(g_url, headers=headers, timeout=10)
-        # XML에서 첫 번째 아이템의 제목과 링크 추출
         item = re.search(r'<item>(.*?)</item>', res.text, re.DOTALL)
         if item:
             title = re.search(r'<title>(.*?)</title>', item.group(1)).group(1)
             link = re.search(r'<link>(.*?)</link>', item.group(1)).group(1)
             return f"📰 {html.unescape(title)}\n🔗 {link}"
     except: pass
-
     return "📰 최근 7일 내 관련 뉴스 없음"
 
 def send_telegram(text):
-    """텔레그램 메시지 발송 (링크 미리보기 꺼서 가독성 확보)"""
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-    payload = {
-        "chat_id": CHAT_ID, 
-        "text": text, 
-        "disable_web_page_preview": True # 링크 미리보기를 꺼야 메시지가 깔끔합니다.
-    }
-    try:
-        requests.post(url, data=payload, timeout=15)
-    except: print("전송 실패")
+    payload = {"chat_id": CHAT_ID, "text": text, "disable_web_page_preview": True}
+    requests.post(url, data=payload, timeout=15)
 
 def run():
     kst = pytz.timezone('Asia/Seoul')
     now = datetime.now(kst).strftime('%Y-%m-%d %H:%M')
-    report = f"📅 [포트폴리오 시황 & 기사 URL - {now}]\n\n"
+    report = f"📅 [전일대비 등락 및 뉴스 리포트 - {now}]\n\n"
     
     for name, symbol in targets.items():
         try:
             ticker = yf.Ticker(symbol)
-            price = ticker.history(period="1d")['Close'].iloc[-1]
+            # 최근 2일치 데이터를 가져와서 전일 종가와 비교
+            hist = ticker.history(period="2d")
+            if len(hist) < 2:
+                # 상장한 지 얼마 안 됐거나 데이터가 부족한 경우
+                current_price = hist['Close'].iloc[-1]
+                report += f"📍 {name}: {current_price:,.0f}원 (변동 데이터 부족)\n"
+            else:
+                prev_price = hist['Close'].iloc[-2]
+                current_price = hist['Close'].iloc[-1]
+                change = current_price - prev_price
+                change_percent = (change / prev_price) * 100
+                
+                # 상승/하락 기호 설정
+                mark = "🔼" if change > 0 else "🔽" if change < 0 else "➖"
+                
+                report += f"📍 {name}: {current_price:,.0f}원 ({mark} {abs(change):,.0f}원, {change_percent:+.2f}%)\n"
+            
             news_info = get_news_with_url(name, symbol)
-            report += f"📍 {name}: {price:,.0f}원\n{news_info}\n\n"
+            report += f"{news_info}\n\n"
         except:
-            report += f"📍 {name}: 업데이트 지연\n\n"
+            report += f"📍 {name}: 데이터 분석 오류\n\n"
 
-    # 메시지 길이 제한 처리
     if len(report) > 4000:
         report = report[:3900] + "\n...(이하 생략)"
     
