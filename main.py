@@ -7,7 +7,7 @@ import pytz
 TOKEN = '8472222940:AAHS9y-3YJiTTh2MKBWOKtatzSMaVnXV9Zg'
 CHAT_ID = '930319531'
 
-# 1. 경제 지표 리스트
+# 1. 경제 지표 (환율, 원자재)
 macro_targets = {
     "💵 원/달러 환율": "USDKRW=X",
     "🟡 국제 금시세": "GC=F",
@@ -16,9 +16,8 @@ macro_targets = {
     "🔋 탄산리튬(LIT)": "LIT"
 }
 
-# 2. 보유 종목 리스트 (해외 및 국내 종목 통합)
-stock_targets = {
-    # --- 해외 주식 (미국) ---
+# 2. 해외 주식 (미국)
+global_targets = {
     "앱셀레라 바이오": "ABCL",
     "BTQ 테크놀로지": "BTQ",
     "조비 에비에이션": "JOBY",
@@ -29,9 +28,11 @@ stock_targets = {
     "DRIV(자율주행)": "DRIV",
     "엔비디아": "NVDA", 
     "테슬라": "TSLA", 
-    "애플": "AAPL",
-    
-    # --- 국내 주식 ---
+    "애플": "AAPL"
+}
+
+# 3. 국내 주식
+domestic_targets = {
     "HMM": "011200.KS", "두산에너빌리티": "034020.KS", "와이지-원": "019210.KQ",
     "엔씨소프트": "036570.KS", "한전기술": "052690.KS", "화성밸브": "039610.KQ",
     "하이스틸": "071090.KS", "차바이오텍": "085660.KQ", "칩스앤미디어": "094360.KQ",
@@ -47,16 +48,16 @@ def send_telegram(text):
         requests.post(url, data=payload, timeout=15)
     except: pass
 
-def get_price_info(name, symbol):
+def get_price_info(name, symbol, is_domestic=False):
     try:
         ticker = yf.Ticker(symbol)
         hist = ticker.history(period="1mo")
-        if hist.empty: return f"📍 {name}: 시세 데이터 없음\n"
+        if hist.empty: return f"📍 {name}: 데이터 없음\n"
             
         valid_data = hist.dropna(subset=['Close'])
         if len(valid_data) < 2:
             curr_c = valid_data['Close'].iloc[-1]
-            return f"📍 {name}: {curr_c:,.2f} (비교 데이터 부족)\n"
+            return f"📍 {name}: {curr_c:,.2f} (비교불가)\n"
 
         curr_c = valid_data['Close'].iloc[-1]
         prev_c = valid_data['Close'].iloc[-2]
@@ -64,31 +65,35 @@ def get_price_info(name, symbol):
         pct = (diff / prev_c) * 100
         mark = "🔼" if diff > 0 else "🔽" if diff < 0 else "➖"
 
-        if ".KS" in symbol or ".KQ" in symbol:
+        if is_domestic:
             return f"📍 {name}: {curr_c:,.0f}원 ({mark} {abs(diff):,.0f}, {pct:+.2f}%)\n"
         else:
-            return f"📍 {name}: ${curr_c:,.2f} ({mark} ${abs(diff):,.2f}, {pct:+.2f}%)\n"
+            # 해외주식/지표는 $ 표시 및 소수점 2자리
+            prefix = "$" if "=" not in symbol else ""
+            return f"📍 {name}: {prefix}{curr_c:,.2f} ({mark} {abs(diff):,.2f}, {pct:+.2f}%)\n"
     except: return f"📍 {name}: 수집 오류\n"
 
 def run():
     kst = pytz.timezone('Asia/Seoul')
     now = datetime.now(kst).strftime('%Y-%m-%d %H:%M')
     
-    # 1. 경제 지표 전송
+    # --- 1. 경제 지표 메시지 ---
     macro_report = f"🌍 [경제 지표 리포트 - {now}]\n\n"
     for name, symbol in macro_targets.items():
         macro_report += get_price_info(name, symbol)
     send_telegram(macro_report)
     
-    # 2. 보유 종목 시황 전송 (분량 조절을 위해 2회 분할 전송 가능)
-    stock_report = f"📈 [보유 종목 시황 - {now}]\n\n"
-    for i, (name, symbol) in enumerate(stock_targets.items()):
-        stock_report += get_price_info(name, symbol)
-        if (i + 1) % 15 == 0: # 15개마다 전송
-            send_telegram(stock_report)
-            stock_report = ""
-    if stock_report:
-        send_telegram(stock_report)
+    # --- 2. 해외 주식 메시지 ---
+    global_report = f"🇺🇸 [해외 주식 시황 - {now}]\n\n"
+    for name, symbol in global_targets.items():
+        global_report += get_price_info(name, symbol)
+    send_telegram(global_report)
+
+    # --- 3. 국내 주식 메시지 ---
+    domestic_report = f"🇰🇷 [국내 주식 시황 - {now}]\n\n"
+    for name, symbol in domestic_targets.items():
+        domestic_report += get_price_info(name, symbol, is_domestic=True)
+    send_telegram(domestic_report)
 
 if __name__ == "__main__":
     run()
