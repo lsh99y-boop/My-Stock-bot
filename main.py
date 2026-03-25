@@ -3,18 +3,21 @@ import requests
 from datetime import datetime
 import pytz
 
-# --- 설정 (본인 정보 확인) ---
+# --- 설정 ---
 TOKEN = '8472222940:AAHS9y-3YJiTTh2MKBWOKtatzSMaVnXV9Zg'
 CHAT_ID = '930319531'
 
-# 리튬은 가장 안정적인 LIT(ETF)와 LTH-USD를 혼합하여 체크합니다.
-targets = {
+# 1. 경제 지표 리스트
+macro_targets = {
     "💵 원/달러 환율": "USDKRW=X",
     "🟡 국제 금시세": "GC=F",
     "⚪ 국제 은시세": "SI=F",
     "🛢️ WTI 원유": "CL=F",
-    "🔋 탄산리튬(LIT)": "LIT", # ETF 기반으로 하면 절대 끊기지 않습니다.
-    
+    "🔋 탄산리튬(LIT)": "LIT"
+}
+
+# 2. 보유 종목 리스트
+stock_targets = {
     "HMM": "011200.KS", "두산에너빌리티": "034020.KS", "와이지-원": "019210.KQ",
     "엔씨소프트": "036570.KS", "한전기술": "052690.KS", "화성밸브": "039610.KQ",
     "하이스틸": "071090.KS", "차바이오텍": "085660.KQ", "칩스앤미디어": "094360.KQ",
@@ -27,47 +30,53 @@ def send_telegram(text):
     payload = {"chat_id": CHAT_ID, "text": text, "disable_web_page_preview": True}
     requests.post(url, data=payload, timeout=15)
 
+def get_price_info(name, symbol, is_stock=True):
+    try:
+        ticker = yf.Ticker(symbol)
+        # 데이터 지연 대비 1개월치 로드 후 유효값 추출
+        hist = ticker.history(period="1mo")
+        if not hist.empty and len(hist) >= 2:
+            valid_data = hist.dropna(subset=['Close'])
+            curr_c = valid_data['Close'].iloc[-1]
+            prev_c = valid_data['Close'].iloc[-2]
+            diff = curr_c - prev_c
+            pct = (diff / prev_c) * 100
+            mark = "🔼" if diff > 0 else "🔽" if diff < 0 else "➖"
+            
+            if is_stock:
+                price_line = f"📍 {name}: {curr_c:,.0f}원 ({mark} {abs(diff):,.0f}, {pct:+.2f}%)"
+                # 뉴스 추가
+                news_info = ""
+                if ticker.news:
+                    news_info = f"\n📰 {ticker.news[0]['title']}\n🔗 {ticker.news[0]['link']}"
+                return f"{price_line}{news_info}\n\n"
+            else:
+                return f"📍 {name}: {curr_c:,.2f} ({mark} {abs(diff):,.2f}, {pct:+.2f}%)\n"
+        return f"📍 {name}: 시세 확인 중\n"
+    except:
+        return f"📍 {name}: 데이터 오류\n"
+
 def run():
     kst = pytz.timezone('Asia/Seoul')
     now = datetime.now(kst).strftime('%Y-%m-%d %H:%M')
     
-    send_telegram(f"📢 [종합 시황 리포트 - {now}]")
+    # --- 1. 경제 지표 메시지 생성 및 전송 ---
+    macro_report = f"🌍 [경제 지표 리포트 - {now}]\n\n"
+    for name, symbol in macro_targets.items():
+        macro_report += get_price_info(name, symbol, is_stock=False)
+    send_telegram(macro_report)
     
-    for name, symbol in targets.items():
-        try:
-            ticker = yf.Ticker(symbol)
-            # 리튬 등 원자재 지연 대비 1개월치 데이터를 가져와서 유효한 데이터 탐색
-            hist = ticker.history(period="1mo") 
+    # --- 2. 보유 종목 메시지 생성 및 전송 ---
+    stock_report = f"📈 [보유 종목 시황 - {now}]\n\n"
+    for name, symbol in stock_targets.items():
+        stock_report += get_price_info(name, symbol, is_stock=True)
+        # 텔레그램 메시지 길이 제한(4000자) 방지를 위해 8종목마다 끊어서 전송 가능
+        if len(stock_report) > 3500:
+            send_telegram(stock_report)
+            stock_report = ""
             
-            if not hist.empty and len(hist) >= 2:
-                # 데이터가 존재하는 가장 최신 2일 추출
-                valid_data = hist.dropna(subset=['Close'])
-                curr_c = valid_data['Close'].iloc[-1]
-                prev_c = valid_data['Close'].iloc[-2]
-                
-                diff = curr_c - prev_c
-                pct = (diff / prev_c) * 100
-                mark = "🔼" if diff > 0 else "🔽" if diff < 0 else "➖"
-                
-                # 지표와 주식 출력 형식 구분
-                is_index = any(x in symbol for x in ["=X", "=F", "-USD", "LIT"])
-                if is_index:
-                    price_text = f"📍 {name}: {curr_c:,.2f} ({mark} {abs(diff):,.2f}, {pct:+.2f}%)"
-                else:
-                    price_text = f"📍 {name}: {curr_c:,.0f}원 ({mark} {abs(diff):,.0f}, {pct:+.2f}%)"
-            else:
-                price_text = f"📍 {name}: 시세 업데이트 대기 중"
-
-            # 주식 종목만 뉴스 포함
-            news_info = ""
-            if not any(x in symbol for x in ["=X", "=F", "-USD", "LIT"]):
-                if ticker.news:
-                    latest = ticker.news
-                    news_info = f"\n📰 {latest.get('title')}\n🔗 {latest.get('link')}"
-                
-            send_telegram(f"{price_text}{news_info}")
-                
-        except: continue
+    if stock_report:
+        send_telegram(stock_report)
 
 if __name__ == "__main__":
     run()
