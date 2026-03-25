@@ -1,6 +1,7 @@
 import yfinance as yf
 import requests
 import re
+import html
 from datetime import datetime
 import pytz
 
@@ -25,58 +26,67 @@ def translate_to_ko(text):
         return "".join([s[0] for s in res.json()[0]])
     except: return text
 
-def get_stable_news(name, symbol):
-    """야후 파이낸스 뉴스 우선 수집 (가장 안정적)"""
+def get_news_with_url(name, symbol):
+    """7일간의 뉴스 제목과 URL 수집 (야후 우선 -> 구글 보조)"""
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+    
+    # 1. 야후 파이낸스 뉴스 시도 (공식 라이브러리라 가장 안정적)
     try:
         ticker = yf.Ticker(symbol)
-        # 최신 yfinance 버전의 뉴스 구조 사용
         yf_news = ticker.news
         if yf_news and len(yf_news) > 0:
-            title = yf_news[0].get('title', '')
-            link = yf_news[0].get('link', '')
-            translated = translate_to_ko(title)
-            return f"📰 {translated}\n🔗 {link}"
-    except:
-        pass
-    
-    # 야후 실패 시 구글 뉴스 RSS 보조 시도
+            latest = yf_news[0]
+            title = translate_to_ko(latest.get('title', ''))
+            link = latest.get('link', '')
+            if link: return f"📰 {title}\n🔗 {link}"
+    except: pass
+
+    # 2. 야후 실패 시 구글 뉴스 RSS 시도 (7일치 데이터)
     try:
         g_url = f"https://news.google.com{name}+when:7d&hl=ko&gl=KR&ceid=KR:ko"
-        res = requests.get(g_url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
-        items = re.findall(r'<item>(.*?)</item>', res.text, re.DOTALL)
-        if items:
-            title = re.search(r'<title>(.*?)</title>', items[0]).group(1)
-            link = re.search(r'<link>(.*?)</link>', items[0]).group(1)
-            return f"📰 {title}\n🔗 {link}"
-    except:
-        pass
-    
+        res = requests.get(g_url, headers=headers, timeout=10)
+        # XML에서 첫 번째 아이템의 제목과 링크 추출
+        item = re.search(r'<item>(.*?)</item>', res.text, re.DOTALL)
+        if item:
+            title = re.search(r'<title>(.*?)</title>', item.group(1)).group(1)
+            link = re.search(r'<link>(.*?)</link>', item.group(1)).group(1)
+            return f"📰 {html.unescape(title)}\n🔗 {link}"
+    except: pass
+
     return "📰 최근 7일 내 관련 뉴스 없음"
 
 def send_telegram(text):
+    """텔레그램 메시지 발송 (링크 미리보기 꺼서 가독성 확보)"""
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-    payload = {"chat_id": CHAT_ID, "text": text, "disable_web_page_preview": True}
-    requests.post(url, data=payload, timeout=15)
+    payload = {
+        "chat_id": CHAT_ID, 
+        "text": text, 
+        "disable_web_page_preview": True # 링크 미리보기를 꺼야 메시지가 깔끔합니다.
+    }
+    try:
+        requests.post(url, data=payload, timeout=15)
+    except: print("전송 실패")
 
 def run():
     kst = pytz.timezone('Asia/Seoul')
     now = datetime.now(kst).strftime('%Y-%m-%d %H:%M')
-    report = f"📅 [포트폴리오 통합 시황 - {now}]\n\n"
+    report = f"📅 [포트폴리오 시황 & 기사 URL - {now}]\n\n"
     
     for name, symbol in targets.items():
         try:
             ticker = yf.Ticker(symbol)
             price = ticker.history(period="1d")['Close'].iloc[-1]
-            news = get_stable_news(name, symbol)
-            report += f"📍 {name}: {price:,.0f}원\n{news}\n\n"
+            news_info = get_news_with_url(name, symbol)
+            report += f"📍 {name}: {price:,.0f}원\n{news_info}\n\n"
         except:
-            report += f"📍 {name}: 정보 업데이트 지연\n\n"
+            report += f"📍 {name}: 업데이트 지연\n\n"
 
-    # 메시지 길이 조절 (텔레그램 제한 준수)
+    # 메시지 길이 제한 처리
     if len(report) > 4000:
         report = report[:3900] + "\n...(이하 생략)"
     
     send_telegram(report)
+    print("전송 완료")
 
 if __name__ == "__main__":
     run()
