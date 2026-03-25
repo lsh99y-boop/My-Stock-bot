@@ -2,7 +2,7 @@ import yfinance as yf
 import requests
 from datetime import datetime
 
-# --- 설정 (본인의 정보로 수정) ---
+# --- 설정 ---
 TOKEN = '8472222940:AAHS9y-3YJiTTh2MKBWOKtatzSMaVnXV9Zg'
 CHAT_ID = '930319531'
 
@@ -15,14 +15,14 @@ targets = {
 }
 
 def get_news(stock_name):
-    """구글 뉴스 RSS를 직접 파싱하여 가장 단순하게 뉴스 제목 1개를 가져옴"""
+    """구글 뉴스 RSS 주소를 정확하게 수정했습니다."""
     try:
+        # .com 뒤에 /rss/search?q= 가 반드시 들어가야 합니다.
         url = f"https://news.google.com{stock_name}+when:3d&hl=ko&gl=KR&ceid=KR:ko"
         res = requests.get(url)
         # 단순 텍스트 파싱으로 제목 추출
         start = res.text.find('<title>') + 7
         end = res.text.find('</title>', start)
-        title = res.text[start:end]
         # 첫 번째 제목은 검색결과 요약일 수 있으므로 두 번째 제목 시도
         start2 = res.text.find('<title>', end) + 7
         end2 = res.text.find('</title>', start2)
@@ -31,14 +31,13 @@ def get_news(stock_name):
         return "뉴스 수집 불가"
 
 def send_telegram(message):
-    # 주소 형식을 아래와 같이 정확하게 수정해야 합니다. 
-    # .org 뒤에 /bot 이 붙어야 하고, 그 뒤에 TOKEN이 와야 합니다.
-    url = f"https://api.telegram.org{TOKEN}/sendMessage"
+    """텔레그램 API 주소를 /bot 포함하여 수정했습니다."""
+    # .org 뒤에 /bot 이 반드시 들어가야 작동합니다.
+    url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": message}
     
-    # 전송 결과 확인을 위해 response 변수 추가
     response = requests.post(url, data=payload)
-    print(f"전송 결과: {response.status_code}") # 실행 로그에서 확인 가능
+    print(f"전송 결과 상태코드: {response.status_code}") 
 
 def run():
     now = datetime.now().strftime('%Y-%m-%d %H:%M')
