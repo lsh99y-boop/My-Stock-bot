@@ -31,6 +31,7 @@ def get_news(stock_name):
         return "뉴스 수집 불가"
 
 def send_telegram(message):
+    # org 뒤에 /bot 이 반드시 들어가야 합니다.
     url = f"https://api.telegram.org{TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": message}
     requests.post(url, data=payload)
