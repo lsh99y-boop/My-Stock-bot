@@ -1,6 +1,8 @@
 import yfinance as yf
 import requests
-from datetime import datetime
+import re
+import html
+from datetime import datetime, timedelta
 import pytz
 
 # --- 설정 (본인 정보 확인) ---
@@ -24,18 +26,30 @@ stock_targets = {
 }
 
 def send_telegram(text):
-    """메시지가 길 경우 4000자 단위로 나누어 전송 (글자수 제한 방어)"""
     if not text.strip(): return
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-    
-    # 4000자 단위로 쪼개서 전송
     for i in range(0, len(text), 4000):
         part = text[i:i+4000]
         payload = {"chat_id": CHAT_ID, "text": part, "disable_web_page_preview": True}
-        try:
-            requests.post(url, data=payload, timeout=15)
-        except:
-            pass
+        requests.post(url, data=payload, timeout=15)
+
+def get_special_news(name):
+    """두산에너빌리티 전용: 최근 30일간의 뉴스 검색"""
+    try:
+        # 구글 뉴스 RSS 활용 (when:30d 옵션)
+        url = f"https://news.google.com{name}+when:30d&hl=ko&gl=KR&ceid=KR:ko"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        res = requests.get(url, headers=headers, timeout=10)
+        items = re.findall(r'<item>(.*?)</item>', res.text, re.DOTALL)
+        
+        if items:
+            # 한 달치 뉴스 중 가장 최신 1건만 제목과 링크 추출 (리스트가 너무 길어지는 것 방지)
+            title = re.search(r'<title>(.*?)</title>', items[0]).group(1)
+            link = re.search(r'<link>(.*?)</link>', items[0]).group(1)
+            return f"\n📅 [최근 1개월 뉴스]\n📰 {html.unescape(title)}\n🔗 {link}"
+        return "\n📅 최근 1개월 내 뉴스 없음"
+    except:
+        return "\n📅 한 달 뉴스 수집 실패"
 
 def get_price_info(name, symbol, is_stock=True):
     try:
@@ -44,31 +58,37 @@ def get_price_info(name, symbol, is_stock=True):
         if hist.empty: return f"📍 {name}: 시세 데이터 없음\n"
             
         valid_data = hist.dropna(subset=['Close'])
-        if len(valid_data) < 2:
-            curr_c = valid_data['Close'].iloc[-1]
-            return f"📍 {name}: {curr_c:,.0f}원 (비교 데이터 부족)\n"
-
         curr_c = valid_data['Close'].iloc[-1]
-        prev_c = valid_data['Close'].iloc[-2]
-        diff = curr_c - prev_c
-        pct = (diff / prev_c) * 100
-        mark = "🔼" if diff > 0 else "🔽" if diff < 0 else "➖"
+        
+        # 등락 계산
+        if len(valid_data) >= 2:
+            prev_c = valid_data['Close'].iloc[-2]
+            diff = curr_c - prev_c
+            pct = (diff / prev_c) * 100
+            mark = "🔼" if diff > 0 else "🔽" if diff < 0 else "➖"
+            change_text = f" ({mark} {abs(diff):,.0f}, {pct:+.2f}%)"
+        else:
+            change_text = " (비교 데이터 부족)"
 
         if is_stock:
-            price_line = f"📍 {name}: {curr_c:,.0f}원 ({mark} {abs(diff):,.0f}, {pct:+.2f}%)"
-            news_info = ""
-            raw_news = ticker.news
-            if raw_news and len(raw_news) > 0:
-                item = raw_news[0] if isinstance(raw_news, list) else raw_news
-                title = item.get('title')
-                link = item.get('link')
-                if title and link:
-                    # 링크가 너무 길어 메시지가 잘릴까 걱정된다면 여기서 링크 길이를 제한할 수도 있습니다.
-                    # 하지만 위 send_telegram 함수에서 나누어 보내므로 원본 링크를 유지하는 것이 좋습니다.
-                    news_info = f"\n📰 {title}\n🔗 {link}"
+            price_line = f"📍 {name}: {curr_c:,.0f}원{change_text}"
+            
+            # --- 뉴스 처리 ---
+            if name == "두산에너빌리티":
+                news_info = get_special_news(name)
+            else:
+                news_info = ""
+                raw_news = ticker.news
+                if raw_news and len(raw_news) > 0:
+                    item = raw_news[0] if isinstance(raw_news, list) else raw_news
+                    title = item.get('title')
+                    link = item.get('link')
+                    if title and link:
+                        news_info = f"\n📰 {title}\n🔗 {link}"
+            
             return f"{price_line}{news_info}\n\n"
         else:
-            return f"📍 {name}: {curr_c:,.2f} ({mark} {abs(diff):,.2f}, {pct:+.2f}%)\n"
+            return f"📍 {name}: {curr_c:,.2f}{change_text}\n"
     except:
         return f"📍 {name}: 데이터 분석 오류\n"
 
@@ -82,7 +102,7 @@ def run():
         macro_report += get_price_info(name, symbol, is_stock=False)
     send_telegram(macro_report)
     
-    # 2. 보유 종목 리포트 전송 (글자수가 많아지면 자동 분할됨)
+    # 2. 보유 종목 리포트 전송
     stock_report = f"📈 [보유 종목 시황 - {now}]\n\n"
     for name, symbol in stock_targets.items():
         stock_report += get_price_info(name, symbol, is_stock=True)
