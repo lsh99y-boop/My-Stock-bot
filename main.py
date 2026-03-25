@@ -3,8 +3,8 @@ import requests
 from datetime import datetime
 
 # --- 설정 (본인의 정보로 수정) ---
-TOKEN = '여기에_토큰_입력'
-CHAT_ID = '여기에_ID_숫자_입력'
+TOKEN = '8472222940:AAHS9y-3YJiTTh2MKBWOKtatzSMaVnXV9Zg'
+CHAT_ID = '930319531'
 
 targets = {
     "HMM": "011200.KS", "두산에너빌리티": "034020.KS", "와이지-원": "019210.KQ",
