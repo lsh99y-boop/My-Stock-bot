@@ -1,6 +1,5 @@
 import yfinance as yf
 import requests
-import re
 from datetime import datetime
 import pytz
 
@@ -13,11 +12,26 @@ macro_targets = {
     "💵 원/달러 환율": "USDKRW=X",
     "🟡 국제 금시세": "GC=F",
     "⚪ 국제 은시세": "SI=F",
-    "🛢️ WTI 원유": "CL=F"
+    "🛢️ WTI 원유": "CL=F",
+    "🔋 탄산리튬(LIT)": "LIT"
 }
 
-# 2. 보유 종목 리스트
+# 2. 보유 종목 리스트 (해외 및 국내 종목 통합)
 stock_targets = {
+    # --- 해외 주식 (미국) ---
+    "앱셀레라 바이오": "ABCL",
+    "BTQ 테크놀로지": "BTQ",
+    "조비 에비에이션": "JOBY",
+    "플러그파워": "PLUG",
+    "뉴스케일 파워": "SMR",
+    "SMU(SMR 2X)": "SMU",
+    "트릴로지 메탈스": "TMQ",
+    "DRIV(자율주행)": "DRIV",
+    "엔비디아": "NVDA", 
+    "테슬라": "TSLA", 
+    "애플": "AAPL",
+    
+    # --- 국내 주식 ---
     "HMM": "011200.KS", "두산에너빌리티": "034020.KS", "와이지-원": "019210.KQ",
     "엔씨소프트": "036570.KS", "한전기술": "052690.KS", "화성밸브": "039610.KQ",
     "하이스틸": "071090.KS", "차바이오텍": "085660.KQ", "칩스앤미디어": "094360.KQ",
@@ -25,31 +39,15 @@ stock_targets = {
     "클래시스": "214150.KQ", "SK바이오사이언스": "302440.KS", "에스와이스틸텍": "365330.KQ"
 }
 
-def get_komis_lithium():
-    """KOMIS 사이트에서 탄산리튬 가격 추출"""
-    try:
-        url = "https://www.komis.or.kr"
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        res = requests.get(url, headers=headers, timeout=15)
-        # 웹페이지 내 '탄산리튬' 텍스트 뒤에 오는 가격 패턴 검색
-        # (사이트 구조에 따라 정규표현식이나 BeautifulSoup으로 가격 수치 추출)
-        match = re.search(r'탄산리튬.*?(\d{1,3}(,\d{3})*(\.\d+)?)', res.text)
-        if match:
-            return f"📍 🔋 탄산리튬(KOMIS): {match.group(1)} (RMB/kg)"
-        return "📍 🔋 탄산리튬: 시세 확인 중 (KOMIS)"
-    except:
-        return "📍 🔋 탄산리튬: 수집 오류 (KOMIS)"
-
 def send_telegram(text):
     if not text.strip(): return
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": text, "disable_web_page_preview": True}
     try:
         requests.post(url, data=payload, timeout=15)
-    except:
-        pass
+    except: pass
 
-def get_price_info(name, symbol, is_stock=True):
+def get_price_info(name, symbol):
     try:
         ticker = yf.Ticker(symbol)
         hist = ticker.history(period="1mo")
@@ -58,8 +56,7 @@ def get_price_info(name, symbol, is_stock=True):
         valid_data = hist.dropna(subset=['Close'])
         if len(valid_data) < 2:
             curr_c = valid_data['Close'].iloc[-1]
-            unit = "원" if is_stock else ""
-            return f"📍 {name}: {curr_c:,.2f}{unit} (비교 데이터 부족)\n"
+            return f"📍 {name}: {curr_c:,.2f} (비교 데이터 부족)\n"
 
         curr_c = valid_data['Close'].iloc[-1]
         prev_c = valid_data['Close'].iloc[-2]
@@ -67,31 +64,31 @@ def get_price_info(name, symbol, is_stock=True):
         pct = (diff / prev_c) * 100
         mark = "🔼" if diff > 0 else "🔽" if diff < 0 else "➖"
 
-        if is_stock:
+        if ".KS" in symbol or ".KQ" in symbol:
             return f"📍 {name}: {curr_c:,.0f}원 ({mark} {abs(diff):,.0f}, {pct:+.2f}%)\n"
         else:
-            return f"📍 {name}: {curr_c:,.2f} ({mark} {abs(diff):,.2f}, {pct:+.2f}%)\n"
-    except:
-        return f"📍 {name}: 수집 오류\n"
+            return f"📍 {name}: ${curr_c:,.2f} ({mark} ${abs(diff):,.2f}, {pct:+.2f}%)\n"
+    except: return f"📍 {name}: 수집 오류\n"
 
 def run():
     kst = pytz.timezone('Asia/Seoul')
     now = datetime.now(kst).strftime('%Y-%m-%d %H:%M')
     
-    # 1. 경제 지표 리포트 (KOMIS 리튬 추가)
+    # 1. 경제 지표 전송
     macro_report = f"🌍 [경제 지표 리포트 - {now}]\n\n"
     for name, symbol in macro_targets.items():
-        macro_report += get_price_info(name, symbol, is_stock=False)
-    
-    # 리튬 추가
-    macro_report += get_komis_lithium() + "\n"
+        macro_report += get_price_info(name, symbol)
     send_telegram(macro_report)
     
-    # 2. 보유 종목 리포트
+    # 2. 보유 종목 시황 전송 (분량 조절을 위해 2회 분할 전송 가능)
     stock_report = f"📈 [보유 종목 시황 - {now}]\n\n"
-    for name, symbol in stock_targets.items():
-        stock_report += get_price_info(name, symbol, is_stock=True)
-    send_telegram(stock_report)
+    for i, (name, symbol) in enumerate(stock_targets.items()):
+        stock_report += get_price_info(name, symbol)
+        if (i + 1) % 15 == 0: # 15개마다 전송
+            send_telegram(stock_report)
+            stock_report = ""
+    if stock_report:
+        send_telegram(stock_report)
 
 if __name__ == "__main__":
     run()
